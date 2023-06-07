@@ -3,39 +3,48 @@
 # se debe de obtener 25 jokes diferentes (verificar que el contenido sea distinto)
 
 from flask import Flask, jsonify
-import requests
+import asyncio
+import aiohttp
+import itertools
 
 app = Flask(__name__)
 
-#ruta
+async def fetch_joke(session, ids):
+    # Realiza una solicitud GET asincrónica para obtener un chiste aleatorio de Chuck Norris
+    async with session.get('https://api.chucknorris.io/jokes/random') as response:
+        joke = await response.json()
+        # Verifica si el ID del chiste no está en el conjunto de IDs existentes
+        if joke['id'] not in ids:
+            return joke
+        return None
+
 @app.route('/api/chucknorris', methods=['GET'])
-
-## Definimos la funcion para hacer el get al api chuck norris
-
-def get_chucknorris_jokes():
-
-     #arrays para guardar los datos obtenidos del GET
-    
-    jokes = []
+async def get_chucknorris_jokes():
+    jokes = []  # Lista para almacenar los chistes
     ids = set()  # Conjunto para evitar duplicados de ID
 
- #Vemos que tengamos menos de 25 jokes en el array, se dice menor a 25 ya que se comienza desde 0.
-    while len(jokes) < 25:
-        response = requests.get('https://api.chucknorris.io/jokes/random')
-        joke = response.json()
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for _ in itertools.repeat(None, 25):
+            # Crea tareas asincrónicas para obtener los chistes
+            task = asyncio.ensure_future(fetch_joke(session, ids))
+            tasks.append(task)
 
- # verificamos que el id no se encuentre ya dentro del array previamente definido
-        if joke['id'] not in ids:
-            joke_data = {
-                'id': joke['id'],
-                'joke': joke['value']
-            }
-            jokes.append(joke_data)
-            ids.add(joke['id'])
+        # Ejecuta las tareas asincrónicas de manera concurrente
+        joke_responses = await asyncio.gather(*tasks)
 
-            
+        for joke in joke_responses:
+            if joke is not None:
+                joke_data = {
+                    'id': joke['id'],
+                    'joke': joke['value']
+                }
+                jokes.append(joke_data)
+                ids.add(joke['id'])
 
     return jsonify(jokes)
 
 if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(asyncio.ensure_future(get_chucknorris_jokes()))
     app.run()
